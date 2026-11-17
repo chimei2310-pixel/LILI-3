@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>醫療服務組排班預班系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS for Excel Import/Export -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-100 via-indigo-50/40 to-slate-200 text-slate-800 min-h-screen flex flex-col">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-30 shadow-xs">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 flex items-center justify-center text-white font-bold shadow-md">
+                    <i class="fa-solid fa-hospital-user text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-base font-bold text-slate-900 tracking-tight">醫療服務組排班預班系統</h1>
+                    <p class="text-xs text-slate-500 font-medium">醫療服務組同仁自主預班與排班管理平台</p>
+                </div>
+            </div>
+
+            <!-- Top Right Action Buttons -->
+            <div class="flex flex-wrap items-center gap-2">
+                <!-- User Switcher -->
+                <div class="flex items-center space-x-2 bg-slate-100/80 px-3 py-1.5 rounded-xl border border-slate-200 shadow-inner">
+                    <i class="fa-solid fa-user-gear text-blue-600 text-sm"></i>
+                    <span class="text-xs font-semibold text-slate-700">當前身分：</span>
+                    <select id="user-select" onchange="switchUser()" class="bg-transparent text-xs font-bold text-blue-700 focus:outline-none cursor-pointer">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <!-- 匯入排班名單 -->
+                <button onclick="openImportModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center shadow-sm">
+                    <i class="fa-solid fa-file-excel mr-1.5"></i> 匯入排班名單
+                </button>
+
+                <!-- 自定義假別維護 -->
+                <button onclick="openLeaveModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center shadow-sm">
+                    <i class="fa-solid fa-tags mr-1.5"></i> 自定義假別維護
+                </button>
+
+                <button onclick="openRulesModal()" class="bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center shadow-sm">
+                    <i class="fa-solid fa-book-open mr-1.5"></i> 預班規則
+                </button>
+                <a href="app_guide.html" target="_blank" class="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center shadow-sm">
+                    <i class="fa-solid fa-mobile-screen-button mr-1.5"></i> 手機App化
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto px-4 py-6 flex-1 w-full space-y-6">
+
+        <!-- Lottery Warning & Trigger Banner -->
+        <div id="lottery-banner-container"></div>
+
+        <!-- Month Navigation & Controls -->
+        <div class="bg-white/90 backdrop-blur-sm p-4 rounded-2xl shadow-md border border-slate-200/80 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center space-x-3">
+                <button onclick="changeMonth(-1)" class="w-9 h-9 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center hover:bg-slate-100 transition shadow-2xs">
+                    <i class="fa-solid fa-chevron-left text-slate-600 text-xs"></i>
+                </button>
+                <h2 id="calendar-title-heading" class="text-base font-bold text-slate-900 tracking-tight">2026 年 12 月份 預班行事曆</h2>
+                <button onclick="changeMonth(1)" class="w-9 h-9 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center hover:bg-slate-100 transition shadow-2xs">
+                    <i class="fa-solid fa-chevron-right text-slate-600 text-xs"></i>
+                </button>
+            </div>
+
+            <div class="flex items-center space-x-3">
+                <span id="current-month-range-text" class="text-xs text-slate-600 font-semibold bg-indigo-50/80 px-3.5 py-1.5 rounded-xl border border-indigo-100">
+                    當月天數：31 天 (起始星期：二)
+                </span>
+                <button onclick="clearCurrentMonthReservations()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center shadow-2xs">
+                    <i class="fa-solid fa-rotate-right mr-1.5"></i> 重置本月預班
+                </button>
+            </div>
+        </div>
+
+        <!-- Legend Bar -->
+        <div class="bg-white/90 backdrop-blur-sm px-5 py-3 rounded-2xl shadow-sm border border-slate-200/80 flex flex-wrap items-center justify-between text-xs font-medium text-slate-600 gap-3">
+            <div class="flex items-center space-x-6">
+                <div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-emerald-500 inline-block shadow-2xs"></span><span>可預約 (0/2人)</span></div>
+                <div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-cyan-500 inline-block shadow-2xs"></span><span>已預約 1 人 (1/2人)</span></div>
+                <div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-slate-400 inline-block shadow-2xs"></span><span>已鎖班</span></div>
+                <div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-amber-400 inline-block shadow-2xs"></span><span>額滿 (2/2人)</span></div>
+                <div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-rose-500 inline-block shadow-2xs"></span><span>超額警戒 (>2人需抽籤)</span></div>
+            </div>
+            <div class="text-slate-500 italic">
+                💡 提示：點擊行事曆日期即可進行預約或鎖班設定。
+            </div>
+        </div>
+
+        <!-- Calendar Grid -->
+        <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-md border border-slate-200/80 overflow-hidden p-4">
+            <!-- Weekday Header -->
+            <div class="grid grid-cols-7 gap-2 mb-2 text-center font-bold text-xs">
+                <div class="py-2 text-red-500 bg-red-50/60 rounded-xl">日 (Sun)</div>
+                <div class="py-2 text-slate-700 bg-slate-50 rounded-xl">一 (Mon)</div>
+                <div class="py-2 text-slate-700 bg-slate-50 rounded-xl">二 (Tue)</div>
+                <div class="py-2 text-slate-700 bg-slate-50 rounded-xl">三 (Wed)</div>
+                <div class="py-2 text-slate-700 bg-slate-50 rounded-xl">四 (Thu)</div>
+                <div class="py-2 text-slate-700 bg-slate-50 rounded-xl">五 (Fri)</div>
+                <div class="py-2 text-red-500 bg-red-50/60 rounded-xl">六 (Sat)</div>
+            </div>
+            <!-- Days Cell Container -->
+            <div id="calendar-days" class="grid grid-cols-7 gap-2">
+                <!-- Dynamically Rendered -->
+            </div>
+        </div>
+
+        <!-- Staff Reservation Summary Dashboard (with 0-day highlights) -->
+        <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-md border border-slate-200/80 p-5 space-y-4">
+            <div class="flex flex-wrap justify-between items-center gap-3">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-users-rectangle text-blue-600 text-lg"></i>
+                    <h3 class="font-bold text-sm text-slate-900 tracking-tight">同仁預約狀況與登記天數清單看板</h3>
+                </div>
+                <span class="text-xs text-slate-600 font-medium bg-slate-100/80 px-3 py-1 rounded-lg border border-slate-200/60">
+                    掌握每位同仁登記天數（0天以紅底標示，方便主管提醒）
+                </span>
+            </div>
+            <div id="staff-summary-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Dynamically Rendered -->
+            </div>
+        </div>
+
+        <!-- All Staff Schedule Overview Matrix -->
+        <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-md border border-slate-200/80 p-5 space-y-4">
+            <div class="flex flex-wrap justify-between items-center gap-3">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-table-cells text-blue-600 text-lg"></i>
+                    <h3 class="font-bold text-sm text-slate-900 tracking-tight">全組預班總表概覽</h3>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <button onclick="saveAllScheduleMatrix()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center shadow-sm">
+                        <i class="fa-solid fa-floppy-disk mr-1.5"></i> 儲存排班總表
+                    </button>
+                    <button onclick="exportScheduleExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center shadow-sm">
+                        <i class="fa-solid fa-file-excel mr-1.5"></i> 匯出 Excel
+                    </button>
+                </div>
+            </div>
+            <p class="text-xs text-slate-500">點擊下方表格任一格子即可直接為該同仁、該日期維護/指派排班與特殊班別、假別代碼</p>
+            <div class="overflow-x-auto border border-slate-200 rounded-xl shadow-inner">
+                <table id="schedule-matrix-table" class="w-full text-xs text-center border-collapse">
+                    <!-- Dynamically Rendered -->
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white/80 backdrop-blur-md border-t border-slate-200/80 py-4 text-center text-xs text-slate-500 mt-auto">
+        醫療服務組排班預班系統 &copy; 2026 All Rights Reserved.
+    </footer>
+
+    <!-- Modal: Date Booking / Setting -->
+    <div id="booking-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-5 transform transition-all">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-user-pen text-blue-600 text-lg"></i>
+                    <h3 class="font-bold text-base text-slate-900">專屬排班與班別維護</h3>
+                </div>
+                <button onclick="closeBookingModal()" class="text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            
+            <div id="modal-user-info" class="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200 font-medium">
+                正在為 <span id="modal-current-username" class="font-bold text-blue-700"></span> 維護 <span id="modal-current-datestr" class="font-bold text-slate-800"></span> 的班別與假別：
+            </div>
+
+            <!-- Booking options: Standard/custom leaves only for calendar booking -->
+            <div class="space-y-4 max-h-[55vh] overflow-y-auto pr-1">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-2">預班假別與其他代碼 (v, off, 產假等) :</label>
+                    <div id="standard-leave-buttons-grid" class="grid grid-cols-3 gap-2">
+                        <!-- Dynamically Rendered -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lock Date Toggle Section (Restricted to Supervisors) -->
+            <div id="modal-lock-section" class="pt-2 border-t border-slate-100 hidden">
+                <button id="modal-lock-date-btn" onclick="toggleActiveDateLock()" class="w-full bg-slate-800 hover:bg-slate-900 text-white py-2.5 rounded-xl text-xs font-semibold transition flex items-center justify-center space-x-2 shadow-xs">
+                    <i class="fa-solid fa-lock"></i>
+                    <span id="modal-lock-btn-text">鎖定此日 (關閉預約)</span>
+                </button>
+            </div>
+
+            <div class="pt-2 border-t border-slate-100 flex justify-between items-center">
+                <button onclick="clearUserBookingForActiveDate()" class="text-xs text-rose-600 hover:text-rose-700 font-semibold flex items-center">
+                    <i class="fa-solid fa-trash-can mr-1"></i> 清除此格排班/假別
+                </button>
+                <button onclick="closeBookingModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-xl text-xs font-semibold transition">
+                    關閉
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Custom Leave Maintenance -->
+    <div id="leave-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-5">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-tags text-indigo-600 text-lg"></i>
+                    <h3 class="font-bold text-base text-slate-900">自定義假別維護</h3>
+                </div>
+                <button onclick="closeLeaveModal()" class="text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <p class="text-xs text-slate-500">您可隨時新增或維護專屬假別代碼。</p>
+            
+            <div id="custom-leave-tags-container" class="flex flex-wrap gap-2 py-2">
+                <!-- Dynamically Rendered -->
+            </div>
+
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                <h4 class="text-xs font-bold text-slate-700">+ 新增自定義假別</h4>
+                <div class="grid grid-cols-2 gap-3">
+                    <input type="text" id="new-leave-name" placeholder="假別名稱 (例如: 榮譽假)" class="border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                    <select id="new-leave-color" class="border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                        <option value="bg-blue-600">藍色系</option>
+                        <option value="bg-indigo-600">靛色系</option>
+                        <option value="bg-emerald-600">綠色系</option>
+                        <option value="bg-amber-600">黃色系</option>
+                        <option value="bg-rose-600">紅色系</option>
+                        <option value="bg-purple-600">紫色系</option>
+                    </select>
+                </div>
+                <button onclick="addNewCustomLeave()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-xl text-xs font-semibold transition shadow-xs">
+                    確認新增假別
+                </button>
+            </div>
+
+            <div class="flex justify-end pt-2 border-t border-slate-100">
+                <button onclick="closeLeaveModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition">
+                    關閉視窗
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Rules -->
+    <div id="rules-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-base text-slate-900"><i class="fa-solid fa-book-open text-blue-600 mr-2"></i>醫療服務組預班規則詳情</h3>
+                <button onclick="closeRulesModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="space-y-3 text-xs text-slate-600 leading-relaxed max-h-96 overflow-y-auto pr-1">
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span class="font-bold text-slate-900">1. 一般預班天數：</span>維持 2 天（提特休 v 或 off 休皆可）。
+                </div>
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span class="font-bold text-slate-900">2. 預約 3 天條件：</span>僅限平日週一～週五，且 3 天皆必須為特休 v。
+                </div>
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span class="font-bold text-slate-900">3. 假日預班規則：</span>若預班有劃到六或日者：僅限預 2 天（六或日都需要 off 預班，平日可選擇 off 或特休 v）。
+                </div>
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span class="font-bold text-slate-900">4. 長天數預班：</span>預 4 天請走報備程序；預 5 天（含）以上請走長假申請。
+                </div>
+                <div class="bg-amber-50 p-3 rounded-xl border border-amber-300 text-amber-900">
+                    <span class="font-bold">5. 頻率限制：</span>不能同時預約 2 個或以上的週一、週六或週日。
+                </div>
+            </div>
+            <div class="flex justify-end pt-2 border-t border-slate-100">
+                <button onclick="closeRulesModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl text-xs font-semibold transition">我知道了</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Import Roster / Excel -->
+    <div id="import-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-base text-slate-900"><i class="fa-solid fa-file-excel text-emerald-600 mr-2"></i>匯入排班人員與名單</h3>
+                <button onclick="closeImportModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p class="text-xs text-slate-500">您可以上傳 Excel 檔案 (.xlsx, .xls) 或 CSV 檔案，或直接在下方貼上人員名單（格式：職稱 姓名 或 職稱,姓名，每行一位）。</p>
+            
+            <div class="space-y-3">
+                <label class="block text-xs font-bold text-slate-700">上傳 Excel 或 CSV 檔案：</label>
+                <div class="flex items-center space-x-2">
+                    <input type="file" id="roster-file-input" accept=".xlsx, .xls, .csv" class="border border-slate-300 rounded-xl px-3 py-2 text-xs w-full text-slate-500 file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer">
+                    <button onclick="clearImportFileInput()" class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-xl text-xs font-semibold transition" title="取消選擇檔案">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="space-y-1">
+                <label class="block text-xs font-bold text-slate-700">或直接貼上人員資料（例如：組長 莉娟）：</label>
+                <textarea id="roster-textarea" rows="5" class="w-full border border-slate-300 rounded-xl p-3 text-xs font-mono focus:outline-none focus:border-emerald-500" placeholder="例如：
+組長 莉娟
+副組長 麗雯
+小組長 佩君
+正-1 乙玲
+正-2 文雄
+輪-1 冠汝"></textarea>
+            </div>
+
+            <div class="pt-2 border-t border-slate-100 flex justify-between items-center">
+                <button onclick="resetDefaultStaffList()" class="text-xs text-slate-500 hover:text-slate-700 underline">重設回預設名單</button>
+                <div class="flex space-x-2">
+                    <button onclick="closeImportModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl text-xs font-semibold">取消</button>
+                    <button onclick="processImportRoster()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-xs">確認匯入更新</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Online Lottery System -->
+    <div id="lottery-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-5">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-dice text-rose-600 text-lg"></i>
+                    <h3 id="lottery-modal-title" class="font-bold text-base text-slate-900">線上抽籤系統</h3>
+                </div>
+                <button onclick="closeLotteryModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            
+            <p class="text-xs text-slate-500 leading-relaxed">
+                此日期預約人數已超過 2 人上限。您可以選擇「個人自行抽籤」（挑選您的姓名抽籤看是否抽中○），或使用「管理員一鍵隨機抽籤」。
+            </p>
+
+            <!-- Personal Draw Section -->
+            <div id="personal-draw-box" class="bg-blue-50 border border-blue-200 p-4 rounded-xl space-y-3">
+                <h4 class="text-xs font-bold text-blue-900 flex items-center"><i class="fa-solid fa-user-check mr-1.5"></i> 個人自行抽籤專區</h4>
+                <div class="flex items-center space-x-3">
+                    <select id="lottery-person-select" class="flex-1 border border-blue-300 rounded-xl px-3 py-2 text-xs bg-white focus:outline-none">
+                        <!-- Populated by JS -->
+                    </select>
+                    <button onclick="performPersonalDraw()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-xs flex items-center">
+                        <i class="fa-solid fa-hand-pointer mr-1.5"></i> 我要抽籤
+                    </button>
+                </div>
+            </div>
+
+            <!-- Admin Batch Draw Section -->
+            <div class="flex flex-wrap justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-200 gap-3">
+                <div>
+                    <h4 class="text-xs font-bold text-slate-800">管理員功能</h4>
+                    <p id="lottery-status-text" class="text-[11px] text-slate-500">目前狀態：尚未進行抽籤</p>
+                </div>
+                <button onclick="performAdminBatchLottery()" class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-xs flex items-center">
+                    <i class="fa-solid fa-wand-magic-sparkles mr-1.5"></i> 一鍵隨機抽籤(取2人)
+                </button>
+            </div>
+
+            <!-- Lottery Results List -->
+            <div id="lottery-results-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+                <!-- Dynamically Rendered -->
+            </div>
+
+            <div class="pt-2 border-t border-slate-100 flex justify-between items-center">
+                <button onclick="resetLotteryForActiveDate()" class="text-xs text-slate-500 hover:text-slate-700 underline">重置抽籤結果</button>
+                <button onclick="closeLotteryModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl text-xs font-semibold">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        let currentYear = 2026;
+        let currentMonth = 12;
+        let totalDays = 31;
+        let startDayOfWeek = 2;
+
+        let staffList = [
+            { id: 'staff_1', name: '莉娟', role: '組長' },
+            { id: 'staff_2', name: '麗雯', role: '副組長' },
+            { id: 'staff_3', name: '佩君', role: '小組長' },
+            { id: 'staff_4', name: '乙玲', role: '正-1' },
+            { id: 'staff_5', name: '文雄', role: '正-2' },
+            { id: 'staff_6', name: '冠汝', role: '輪-1' },
+            { id: 'staff_7', name: '婉霏', role: '輪-2' },
+            { id: 'staff_8', name: '勇得', role: '輪-3' },
+            { id: 'staff_9', name: '詣勛', role: '輪-4' },
+            { id: 'staff_10', name: '婷瑩', role: '輪-5' },
+            { id: 'staff_11', name: '芷芸', role: '輪-6' },
+            { id: 'staff_12', name: '惠琳', role: '輪-7' },
+            { id: 'staff_13', name: '琦崴', role: '輪-8' },
+            { id: 'staff_14', name: '俊穎', role: '輪-9' },
+            { id: 'staff_15', name: '鈺珊', role: '輪-10' },
+            { id: 'staff_16', name: '宛淇', role: '輪-11' },
+            { id: 'staff_17', name: '儀溱', role: '輪-12' },
+            { id: 'staff_18', name: '芬萍', role: '服務台(正-3)' },
+            { id: 'staff_19', name: '欣怡', role: '轉診-1' }
+        ];
+
+        let currentUser = 'staff_1';
+        let activeSelectedDate = null;
+        let activeLotteryDate = null;
+
+        const standardLeaveTypes = [
+            { name: 'v', color: 'bg-blue-600' },
+            { name: 'off', color: 'bg-slate-600' },
+            { name: '長假期(v)', color: 'bg-indigo-600' },
+            { name: '長假期(off)', color: 'bg-slate-700' },
+            { name: '報備(v)', color: 'bg-emerald-600' },
+            { name: '報備(off)', color: 'bg-teal-600' },
+            { name: '產假', color: 'bg-pink-600' },
+            { name: '病假', color: 'bg-amber-600' },
+            { name: '喪假', color: 'bg-zinc-700' },
+            { name: '育嬰留停', color: 'bg-purple-600' },
+            { name: '產檢假', color: 'bg-rose-500' },
+            { name: '陪產假', color: 'bg-cyan-600' }
+        ];
+
+        let customLeaveTypes = [];
+        let reservations = {};
+        let lockedDates = [];
+        let lotteryRecords = {}; 
+
+        window.onload = function() {
+            loadSavedData();
+            initUserSelect();
+            refreshActiveMonthData();
+            renderCalendar();
+            renderStaffSummaryDashboard();
+            renderScheduleMatrix();
+            renderLeaveButtons();
+            renderCustomLeaveTags();
+        };
+
+        function loadSavedData() {
+            const savedStaff = localStorage.getItem('medical_staff_list');
+            if (savedStaff) {
+                try { staffList = JSON.parse(savedStaff); } catch(e){}
+            }
+            const savedCustomLeaves = localStorage.getItem('medical_custom_leaves');
+            if (savedCustomLeaves) {
+                try { customLeaveTypes = JSON.parse(savedCustomLeaves); } catch(e){}
+            }
+        }
+
+        function saveAppData() {
+            localStorage.setItem('medical_staff_list', JSON.stringify(staffList));
+            localStorage.setItem('medical_custom_leaves', JSON.stringify(customLeaveTypes));
+            saveActiveMonthData();
+        }
+
+        function refreshActiveMonthData() {
+            totalDays = new Date(currentYear, currentMonth, 0).getDate();
+            startDayOfWeek = new Date(currentYear, currentMonth - 1, 1).getDay();
+
+            const resKey = `medical_reservations_${currentYear}_${currentMonth}`;
+            const lockKey = `medical_locked_dates_${currentYear}_${currentMonth}`;
+            const lotKey = `medical_lottery_${currentYear}_${currentMonth}`;
+
+            reservations = JSON.parse(localStorage.getItem(resKey) || "{}");
+            lockedDates = JSON.parse(localStorage.getItem(lockKey) || "[]");
+            lotteryRecords = JSON.parse(localStorage.getItem(lotKey) || "{}");
+
+            const titleEl = document.getElementById('calendar-title-heading');
+            if (titleEl) titleEl.textContent = `${currentYear} 年 ${currentMonth} 月份 預班行事曆`;
+            
+            const rangeEl = document.getElementById('current-month-range-text');
+            if (rangeEl) rangeEl.textContent = `當月天數：${totalDays} 天 (起始星期：${["日","一","二","三","四","五","六"][startDayOfWeek]})`;
+        }
+
+        function saveActiveMonthData() {
+            const resKey = `medical_reservations_${currentYear}_${currentMonth}`;
+            const lockKey = `medical_locked_dates_${currentYear}_${currentMonth}`;
+            const lotKey = `medical_lottery_${currentYear}_${currentMonth}`;
+            localStorage.setItem(resKey, JSON.stringify(reservations));
+            localStorage.setItem(lockKey, JSON.stringify(lockedDates));
+            localStorage.setItem(lotKey, JSON.stringify(lotteryRecords));
+        }
+
+        function changeMonth(direction) {
+            currentMonth += direction;
+            if (currentMonth > 12) {
+                currentMonth = 1;
+                currentYear++;
+            } else if (currentMonth < 1) {
+                currentMonth = 12;
+                currentYear--;
+            }
+            refreshActiveMonthData();
+            renderCalendar();
+            renderStaffSummaryDashboard();
+            renderScheduleMatrix();
+        }
+
+        function initUserSelect() {
+            const select = document.getElementById('user-select');
+            if (!select) return;
+            select.innerHTML = '';
+            if (staffList.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = "";
+                opt.textContent = "無人員資料，請先匯入";
+                select.appendChild(opt);
+                return;
+            }
+            staffList.forEach(staff => {
+                const opt = document.createElement('option');
+                opt.value = staff.id;
+                opt.textContent = `${staff.name} (${staff.role})`;
+                select.appendChild(opt);
+            });
+            if (!staffList.some(s => s.id === currentUser)) {
+                currentUser = staffList[0].id;
+            }
+            select.value = currentUser;
+        }
+
+        function switchUser() {
+            const select = document.getElementById('user-select');
+            if (!select) return;
+            currentUser = select.value;
+            renderCalendar();
+            renderStaffSummaryDashboard();
+        }
+
+        function getDayOfWeek(day) {
+            return (startDayOfWeek + day - 1) % 7; 
+        }
+
+        // Rule 5 Verification: Cannot book 2 or more Mondays, Saturdays, or Sundays in the same month.
+        function checkFrequencyLimit(staffId, targetDay, targetType) {
+            if (!targetType) return true; 
+            const targetDow = getDayOfWeek(targetDay);
+
+            // Rule 3 Verification: If weekend (Saturday or Sunday), leave type must be 'off' (cannot be 'v' or contain '(v)')
+            if (targetDow === 0 || targetDow === 6) {
+                if (targetType === 'v' || targetType.includes('(v)')) {
+                    alert("假日（六或日）僅限預約 off，不可預約特休 v，請選擇其他假別。");
+                    return false;
+                }
+            }
+
+            if (targetDow !== 1 && targetDow !== 6 && targetDow !== 0) return true; 
+
+            let count = 0;
+            for (let d = 1; d <= totalDays; d++) {
+                if (d === targetDay) continue; 
+                const key = `${staffId}_${d}`;
+                if (reservations[key] && reservations[key].type) {
+                    const dow = getDayOfWeek(d);
+                    if (dow === targetDow) {
+                        count++;
+                    }
+                }
+            }
+
+            if (count >= 1) {
+                alert("不能同時預約 2 個或以上的週一、週六或週日。");
+                return false;
+            }
+            return true;
+        }
+
+        function renderCalendar() {
+            const container = document.getElementById('calendar-days');
+            if (!container) return;
+            container.innerHTML = '';
+
+            for (let i = 0; i < startDayOfWeek; i++) {
+                const emptyDiv = document.createElement('div');
+                emptyDiv.className = "bg-slate-50/50 rounded-2xl min-h-[120px] border border-transparent";
+                container.appendChild(emptyDiv);
+            }
+
+            for (let day = 1; day <= totalDays; day++) {
+                const dow = getDayOfWeek(day);
+                const isWeekend = (dow === 0 || dow === 6);
+                const isLocked = lockedDates.includes(day);
+
+                // Collect bookings for this day
+                let dayBookings = [];
+                staffList.forEach(staff => {
+                    const key = `${staff.id}_${day}`;
+                    if (reservations[key] && reservations[key].type) {
+                        dayBookings.push({ staff, type: reservations[key].type });
+                    }
+                });
+
+                const count = dayBookings.length;
+                let bgClass = "bg-white hover:border-blue-400";
+                let badgeHtml = `<span class="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">可預約</span>`;
+
+                if (isLocked) {
+                    bgClass = "bg-slate-100 border-slate-300 opacity-75";
+                    badgeHtml = `<span class="text-[10px] font-semibold text-slate-500 bg-slate-200 px-2 py-0.5 rounded-md">已鎖班</span>`;
+                } else if (count === 1) {
+                    bgClass = "bg-cyan-50/75 border-cyan-300 hover:border-cyan-500";
+                    badgeHtml = `<span class="text-[10px] font-bold text-cyan-700 bg-cyan-100 px-2 py-0.5 rounded-md shadow-2xs">已預約 1 人</span>`;
+                } else if (count === 2) {
+                    bgClass = "bg-amber-50/60 border-amber-300";
+                    badgeHtml = `<span class="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">額滿 (2人)</span>`;
+                } else if (count > 2) {
+                    bgClass = "bg-rose-50 border-rose-300";
+                    badgeHtml = `<span class="text-[10px] font-semibold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md animate-pulse">超額警戒(需抽籤)</span>`;
+                }
+
+                const cell = document.createElement('div');
+                cell.className = `${bgClass} rounded-2xl p-3 border border-slate-200 shadow-xs flex flex-col justify-between min-h-[130px] transition cursor-pointer relative group`;
+                cell.onclick = () => openBookingModal(day);
+
+                let bookingsHtml = '';
+                dayBookings.forEach(b => {
+                    bookingsHtml += `<div class="text-[11px] font-medium text-slate-700 bg-white/80 px-1.5 py-0.5 rounded border border-slate-200 truncate mt-1">${b.staff.name}(${b.type})</div>`;
+                });
+
+                cell.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <span class="text-sm font-bold ${isWeekend ? 'text-red-500' : 'text-slate-800'}">${day}</span>
+                        <div class="flex flex-col items-end space-y-1">
+                            <span class="text-[10px] font-bold text-slate-500">${count}/2人</span>
+                            ${badgeHtml}
+                        </div>
+                    </div>
+                    <div class="space-y-1 my-1 overflow-y-auto max-h-[60px]">
+                        ${bookingsHtml || '<div class="text-[11px] text-slate-400 italic mt-2">點擊設定</div>'}
+                    </div>
+                    <div class="text-[10px] text-slate-400 flex justify-between items-center pt-1 border-t border-slate-100">
+                        <span>${isLocked ? '已關閉' : '可預約'}</span>
+                        <i class="fa-solid fa-chevron-right text-[9px]"></i>
+                    </div>
+                `;
+                container.appendChild(cell);
+            }
+            renderLotteryBanner();
+        }
+
+        function openBookingModal(day) {
+            activeSelectedDate = day;
+            const staff = staffList.find(s => s.id === currentUser);
+            const staffNameStr = staff ? `${staff.name}` : currentUser;
+            const dateStr = `${currentYear}年${currentMonth}月 ${day} 日`;
+            
+            const nameSpan = document.getElementById('modal-current-username');
+            const dateSpan = document.getElementById('modal-current-datestr');
+            if (nameSpan) nameSpan.textContent = `[${staffNameStr}]`;
+            if (dateSpan) dateSpan.textContent = dateStr;
+            
+            // Check if current user is a supervisor (role includes 組長)
+            const isSupervisor = staff && (staff.role.includes('組長'));
+            const lockSection = document.getElementById('modal-lock-section');
+            if (lockSection) {
+                if (isSupervisor) {
+                    lockSection.classList.remove('hidden');
+                } else {
+                    lockSection.classList.add('hidden');
+                }
+            }
+
+            const isLocked = lockedDates.includes(day);
+            const lockBtnText = document.getElementById('modal-lock-btn-text');
+            const lockBtn = document.getElementById('modal-lock-date-btn');
+            if (isLocked) {
+                if (lockBtnText) lockBtnText.textContent = "解除鎖定 (開啟預約)";
+                if (lockBtn) lockBtn.className = "w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-xs font-semibold transition flex items-center justify-center space-x-2 shadow-xs";
+            } else {
+                if (lockBtnText) lockBtnText.textContent = "鎖定此日 (關閉預約)";
+                if (lockBtn) lockBtn.className = "w-full bg-slate-800 hover:bg-slate-900 text-white py-2.5 rounded-xl text-xs font-semibold transition flex items-center justify-center space-x-2 shadow-xs";
+            }
+
+            renderLeaveButtons();
+            document.getElementById('booking-modal').classList.remove('hidden');
+        }
+
+        function closeBookingModal() {
+            document.getElementById('booking-modal').classList.add('hidden');
+            activeSelectedDate = null;
+        }
+
+        function renderLeaveButtons() {
+            const stdGrid = document.getElementById('standard-leave-buttons-grid');
+            if (!stdGrid) return;
+            
+            stdGrid.innerHTML = '';
+
+            const userKey = `${currentUser}_${activeSelectedDate}`;
+            const currentSelection = reservations[userKey] ? reservations[userKey].type : null;
+            const dow = activeSelectedDate ? getDayOfWeek(activeSelectedDate) : -1;
+            const isWeekend = (dow === 0 || dow === 6); // 0: Sunday, 6: Saturday
+
+            // Render Standard Leaves & Custom Leaves
+            const allStandard = [...standardLeaveTypes, ...customLeaveTypes];
+            allStandard.forEach(leave => {
+                const isSelected = currentSelection === leave.name;
+                const isVType = (leave.name === 'v' || leave.name.includes('(v)'));
+                const isDisabledWeekendV = isWeekend && isVType;
+
+                const btn = document.createElement('button');
+                if (isDisabledWeekendV) {
+                    btn.className = `py-2.5 px-3 rounded-xl text-xs font-bold text-slate-400 bg-slate-200 border border-slate-300 cursor-not-allowed opacity-60 flex items-center justify-center space-x-1`;
+                    btn.innerHTML = `<i class="fa-solid fa-ban mr-1"></i> ${leave.name} (假日禁v)`;
+                    btn.onclick = () => {
+                        alert("【預班規則提醒】\n假日（星期六或星期日）不可預約特休 v，請選擇其他假別！");
+                    };
+                } else {
+                    btn.className = `py-2.5 px-3 rounded-xl text-xs font-bold text-white transition shadow-xs flex items-center justify-center space-x-1 ${leave.color} ${isSelected ? 'ring-2 ring-offset-2 ring-blue-500 scale-105' : 'opacity-90 hover:opacity-100'}`;
+                    btn.innerHTML = `${isSelected ? '<i class="fa-solid fa-check mr-1"></i>' : ''}${leave.name}`;
+                    btn.onclick = () => selectLeaveForActiveDate(leave.name);
+                }
+                stdGrid.appendChild(btn);
+            });
+        }
+
+        function selectLeaveForActiveDate(leaveName) {
+            if (!activeSelectedDate) return;
+            if (lockedDates.includes(activeSelectedDate)) {
+                alert("此日期已被管理員鎖定，無法進行預約！");
+                return;
+            }
+
+            // Check Rule 5 & Rule 3 with explicit alert message
+            const dow = getDayOfWeek(activeSelectedDate);
+            if ((dow === 0 || dow === 6) && (leaveName === 'v' || leaveName.includes('(v)'))) {
+                alert("【預班規則提醒】\n假日（星期六或星期日）不可預約特休 v，請選擇其他假別！");
+                return;
+            }
+
+            if (!checkFrequencyLimit(currentUser, activeSelectedDate, leaveName)) {
+                return;
+            }
+
+            const key = `${currentUser}_${activeSelectedDate}`;
+            reservations[key] = { type: leaveName, timestamp: new Date().toISOString() };
+            saveActiveMonthData();
+            closeBookingModal();
+            renderCalendar();
+            renderStaffSummaryDashboard();
+            renderScheduleMatrix();
+        }
+
+        function clearUserBookingForActiveDate() {
+            if (!activeSelectedDate) return;
+            const key = `${currentUser}_${activeSelectedDate}`;
+            delete reservations[key];
+            saveActiveMonthData();
+            closeBookingModal();
+            renderCalendar();
+            renderStaffSummaryDashboard();
+            renderScheduleMatrix();
+        }
+
+        function toggleActiveDateLock() {
+            if (!activeSelectedDate) return;
+            const idx = lockedDates.indexOf(activeSelectedDate);
+            if (idx > -1) {
+                lockedDates.splice(idx, 1);
+            } else {
+                lockedDates.push(activeSelectedDate);
+            }
+            saveActiveMonthData();
+            closeBookingModal();
+            renderCalendar();
+        }
+
+        function clearCurrentMonthReservations() {
+            if (confirm(`確定要重置 ${currentYear} 年 ${currentMonth} 月份的所有預約、鎖班紀錄與抽籤結果嗎？`)) {
+                reservations = {};
+                lockedDates = [];
+                lotteryRecords = {};
+                saveActiveMonthData();
+                renderCalendar();
+                renderStaffSummaryDashboard();
+                renderScheduleMatrix();
+                alert("已成功重置本月預班資料！");
+            }
+        }
+
+        function renderStaffSummaryDashboard() {
+            const container = document.getElementById('staff-summary-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            staffList.forEach(staff => {
+                let bookedCount = 0;
+                let bookedDetails = [];
+
+                for (let d = 1; d <= totalDays; d++) {
+                    const key = `${staff.id}_${d}`;
+                    if (reservations[key] && reservations[key].type) {
+                        bookedCount++;
+                        bookedDetails.push(`${d}日(${reservations[key].type})`);
+                    }
+                }
+
+                const isZero = bookedCount === 0;
+                const card = document.createElement('div');
+                card.className = `p-4 rounded-2xl border transition flex flex-col justify-between space-y-3 ${isZero ? 'bg-rose-50/80 border-rose-300 shadow-xs' : 'bg-slate-50 border-slate-200'}`;
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h4 class="font-bold text-sm text-slate-900">${staff.name}</h4>
+                            <span class="text-[11px] text-slate-500">${staff.role}</span>
+                        </div>
+                        <span class="text-xs font-bold px-2.5 py-1 rounded-xl ${isZero ? 'bg-rose-600 text-white animate-pulse' : 'bg-blue-100 text-blue-700'}">
+                            已登記 ${bookedCount} 天
+                        </span>
+                    </div>
+                    <div class="text-xs text-slate-600 truncate">
+                        <span class="font-semibold text-slate-700">預約紀錄：</span>
+                        ${bookedDetails.length > 0 ? bookedDetails.join(', ') : '<span class="text-rose-600 font-medium italic">尚未預約 (請儘速提醒)</span>'}
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function renderScheduleMatrix() {
+            const table = document.getElementById('schedule-matrix-table');
+            if (!table) return;
+            table.innerHTML = '';
+
+            // Header row 1: Dates
+            let trHead1 = `<tr class="bg-slate-100 text-slate-700 border-b border-slate-200"><th class="p-2 border-r border-slate-200 font-bold sticky left-0 bg-slate-100 z-10">人員 / 日期</th>`;
+            for (let d = 1; d <= totalDays; d++) {
+                const dow = getDayOfWeek(d);
+                trHead1 += `<th class="p-1.5 border-r border-slate-200 ${dow===0||dow===6?'text-red-500 font-bold':''}">${d}</th>`;
+            }
+            trHead1 += `</tr>`;
+
+            // Header row 2: Weekdays
+            let trHead2 = `<tr class="bg-slate-50 text-slate-500 border-b border-slate-200 text-[11px]"><th class="p-1.5 border-r border-slate-200 sticky left-0 bg-slate-50 z-10">星期</th>`;
+            for (let d = 1; d <= totalDays; d++) {
+                const dow = getDayOfWeek(d);
+                const dowChars = ["日","一","二","三","四","五","六"];
+                trHead2 += `<th class="p-1.5 border-r border-slate-200 ${dow===0||dow===6?'text-red-500 font-bold':''}">${dowChars[dow]}</th>`;
+            }
+            trHead2 += `</tr>`;
+
+            let bodyHtml = trHead1 + trHead2;
+
+            staffList.forEach(staff => {
+                bodyHtml += `<tr class="border-b border-slate-100 hover:bg-slate-50/50"><td class="p-2 border-r border-slate-200 font-bold text-slate-800 bg-white sticky left-0 z-10 text-left pl-3">${staff.name} <span class="text-[10px] text-slate-400 font-normal">(${staff.role})</span></td>`;
+                for (let d = 1; d <= totalDays; d++) {
+                    const key = `${staff.id}_${d}`;
+                    const val = reservations[key] ? reservations[key].type : '-';
+                    bodyHtml += `<td class="p-1.5 border-r border-slate-200 cursor-pointer hover:bg-blue-50 font-medium ${val!=='-'?'text-blue-600 bg-blue-50/40':'text-slate-400'}" onclick="matrixCellClick('${staff.id}', ${d})">${val}</td>`;
+                }
+                bodyHtml += `</tr>`;
+            });
+
+            table.innerHTML = bodyHtml;
+        }
+
+        function matrixCellClick(staffId, day) {
+            currentUser = staffId;
+            const select = document.getElementById('user-select');
+            if (select) select.value = currentUser;
+            
+            openBookingModal(day);
+        }
+
+        function saveAllScheduleMatrix() {
+            saveActiveMonthData();
+            alert("排班總表已成功儲存！");
+        }
+
+        function exportScheduleExcel() {
+            let data = [];
+            // Row 1: Dates
+            let row1 = ["人員 / 日期"];
+            for (let d = 1; d <= totalDays; d++) row1.push(d);
+            data.push(row1);
+
+            // Row 2: Weekdays
+            let row2 = ["星期"];
+            const dowChars = ["日","一","二","三","四","五","六"];
+            for (let d = 1; d <= totalDays; d++) {
+                row2.push(dowChars[getDayOfWeek(d)]);
+            }
+            data.push(row2);
+
+            // Rows: Staff data
+            staffList.forEach(staff => {
+                let r = [`${staff.name} (${staff.role})`];
+                for (let d = 1; d <= totalDays; d++) {
+                    const key = `${staff.id}_${d}`;
+                    r.push(reservations[key] ? reservations[key].type : '');
+                }
+                data.push(r);
+            });
+
+            const ws = XLSX.utils.aoa_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, `${currentYear}年${currentMonth}月預班表`);
+            XLSX.writeFile(wb, `醫療服務組_${currentYear}年${currentMonth}月預班總表.xlsx`);
+        }
+
+        function renderLotteryBanner() {
+            const container = document.getElementById('lottery-banner-container');
+            if (!container) return;
+            
+            let overbookedDays = [];
+            for (let d = 1; d <= totalDays; d++) {
+                let count = 0;
+                staffList.forEach(staff => {
+                    if (reservations[`${staff.id}_${d}`]?.type) count++;
+                });
+                if (count > 2) overbookedDays.push(d);
+            }
+
+            if (overbookedDays.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="bg-rose-50 border border-rose-300 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-sm animate-pulse">
+                    <div class="flex items-center space-x-3">
+                        <i class="fa-solid fa-triangle-exclamation text-rose-600 text-xl"></i>
+                        <div>
+                            <h4 class="font-bold text-sm text-rose-900">注意：當月有日期預約人數超過 2 人上限！</h4>
+                            <p class="text-xs text-rose-700">超額日期：${overbookedDays.map(d => `${d}日`).join(', ')}。請點擊進行線上抽籤程序。</p>
+                        </div>
+                    </div>
+                    <button onclick="openLotteryModal(${overbookedDays[0]})" class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-xs flex items-center">
+                        <i class="fa-solid fa-dice mr-1.5"></i> 進入抽籤處理 (${overbookedDays[0]}日)
+                    </button>
+                </div>
+            `;
+        }
+
+        function openLotteryModal(day) {
+            activeLotteryDate = day || 1;
+            document.getElementById('lottery-modal-title').textContent = `${currentYear} 年 ${currentMonth} 月 ${activeLotteryDate} 日 - 線上抽籤系統`;
+            
+            // Populate personal select
+            const sel = document.getElementById('lottery-person-select');
+            if (sel) {
+                sel.innerHTML = '';
+                staffList.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id;
+                    opt.textContent = `${s.name} (${s.role})`;
+                    sel.appendChild(opt);
+                });
+            }
+            renderLotteryResultsList();
+            document.getElementById('lottery-modal').classList.remove('hidden');
+        }
+
+        function closeLotteryModal() {
+            document.getElementById('lottery-modal').classList.add('hidden');
+            activeLotteryDate = null;
+        }
+
+        function renderLotteryResultsList() {
+            const listEl = document.getElementById('lottery-results-list');
+            if (!listEl || !activeLotteryDate) return;
+            listEl.innerHTML = '';
+
+            const lotKey = `${currentYear}_${currentMonth}_${activeLotteryDate}`;
+            const records = lotteryRecords[lotKey] || {};
+
+            if (Object.keys(records).length === 0) {
+                listEl.innerHTML = `<div class="text-xs text-slate-400 italic text-center py-3">尚未進行抽籤或尚未有同仁抽籤。</div>`;
+                return;
+            }
+
+            for (const [staffId, result] of Object.entries(records)) {
+                const staff = staffList.find(s => s.id === staffId);
+                if (!staff) continue;
+                const isWin = result === '○';
+                const row = document.createElement('div');
+                row.className = `flex justify-between items-center p-2.5 rounded-xl border text-xs ${isWin ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'}`;
+                row.innerHTML = `
+                    <span class="font-bold">${staff.name} (${staff.role})</span>
+                    <span class="font-bold px-2.5 py-1 rounded-lg ${isWin ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}">${isWin ? '○ 中籤' : '× 未中籤'}</span>
+                `;
+                listEl.appendChild(row);
+            }
+        }
+
+        function performPersonalDraw() {
+            if (!activeLotteryDate) return;
+            const select = document.getElementById('lottery-person-select');
+            if (!select) return;
+            const staffId = select.value;
+
+            const lotKey = `${currentYear}_${currentMonth}_${activeLotteryDate}`;
+            if (!lotteryRecords[lotKey]) lotteryRecords[lotKey] = {};
+
+            if (lotteryRecords[lotKey][staffId]) {
+                alert("您已經抽過籤了！");
+                return;
+            }
+
+            // Check how many current wins
+            let winCount = Object.values(lotteryRecords[lotKey]).filter(v => v === '○').length;
+            let result = '×';
+            if (winCount < 2) {
+                result = Math.random() < 0.5 ? '○' : '×';
+                if (result === '○' && winCount >= 2) result = '×';
+            }
+
+            lotteryRecords[lotKey][staffId] = result;
+
+            if (result === '×') {
+                const resKey = `${staffId}_${activeLotteryDate}`;
+                delete reservations[resKey];
+            }
+
+            saveActiveMonthData();
+            renderLotteryResultsList();
+            renderCalendar();
+            renderStaffSummaryDashboard();
+            renderScheduleMatrix();
+        }
+
+        function performAdminBatchLottery() {
+            if (!activeLotteryDate) return;
+            const lotKey = `${currentYear}_${currentMonth}_${activeLotteryDate}`;
+            
+            let bookedStaffs = [];
+            staffList.forEach(s => {
+                if (reservations[`${s.id}_${activeLotteryDate}`]?.type) {
+                    bookedStaffs.push(s.id);
+                }
+            });
+
+            if (bookedStaffs.length <= 2) {
+                alert("此日期預約人數未超過 2 人，無需抽籤！");
+                return;
+            }
+
+            let shuffled = [...bookedStaffs].sort(() => 0.5 - Math.random());
+            let winners = shuffled.slice(0, 2);
+            let losers = shuffled.slice(2);
+
+            lotteryRecords[lotKey] = {};
+            winners.forEach(id => lotteryRecords[lotKey][id] = '○');
+            losers.forEach(id => {
+                lotteryRecords[lotKey][id] = '×';
+                delete reservations[`${id}_${activeLotteryDate}`];
+            });
+
+            saveActiveMonthData();
+            renderLotteryResultsList();
+            renderCalendar();
+            renderStaffSummaryDashboard();
+            renderScheduleMatrix();
+            alert("管理員一鍵抽籤完成！未中籤者已自動取消預約。");
+        }
+
+        function resetLotteryForActiveDate() {
+            if (!activeLotteryDate) return;
+            const lotKey = `${currentYear}_${currentMonth}_${activeLotteryDate}`;
+            delete lotteryRecords[lotKey];
+            saveActiveMonthData();
+            renderLotteryResultsList();
+            renderCalendar();
+            alert("已重置此日期的抽籤結果。");
+        }
+
+        // Leave & Custom Leave Functions
+        function openLeaveModal() { document.getElementById('leave-modal').classList.remove('hidden'); renderCustomLeaveTags(); }
+        function closeLeaveModal() { document.getElementById('leave-modal').classList.add('hidden'); }
+        function openRulesModal() { document.getElementById('rules-modal').classList.remove('hidden'); }
+        function closeRulesModal() { document.getElementById('rules-modal').classList.add('hidden'); }
+        function openImportModal() { document.getElementById('import-modal').classList.remove('hidden'); }
+        function closeImportModal() { document.getElementById('import-modal').classList.add('hidden'); }
+        function clearImportFileInput() { document.getElementById('roster-file-input').value = ''; }
+
+        function renderCustomLeaveTags() {
+            const container = document.getElementById('custom-leave-tags-container');
+            if (!container) return;
+            container.innerHTML = '';
+            if (customLeaveTypes.length === 0) {
+                container.innerHTML = `<span class="text-xs text-slate-400 italic">尚無自定義假別</span>`;
+                return;
+            }
+            customLeaveTypes.forEach((leave, idx) => {
+                const tag = document.createElement('div');
+                tag.className = `flex items-center space-x-1 px-3 py-1 rounded-xl text-white text-xs font-semibold ${leave.color}`;
+                tag.innerHTML = `<span>${leave.name}</span> <button onclick="removeCustomLeave(${idx})" class="ml-1 hover:text-slate-200"><i class="fa-solid fa-xmark"></i></button>`;
+                container.appendChild(tag);
+            });
+        }
+
+        function addNewCustomLeave() {
+            const nameInput = document.getElementById('new-leave-name');
+            const colorSelect = document.getElementById('new-leave-color');
+            if (!nameInput || !nameInput.value.trim()) {
+                alert("請輸入假別名稱！");
+                return;
+            }
+            customLeaveTypes.push({ name: nameInput.value.trim(), color: colorSelect.value });
+            nameInput.value = '';
+            saveAppData();
+            renderCustomLeaveTags();
+            renderLeaveButtons();
+            alert("新增成功！");
+        }
+
+        function removeCustomLeave(idx) {
+            customLeaveTypes.splice(idx, 1);
+            saveAppData();
+            renderCustomLeaveTags();
+            renderLeaveButtons();
+        }
+
+        function resetDefaultStaffList() {
+            staffList = [
+                { id: 'staff_1', name: '莉娟', role: '組長' },
+                { id: 'staff_2', name: '麗雯', role: '副組長' },
+                { id: 'staff_3', name: '佩君', role: '小組長' },
+                { id: 'staff_4', name: '乙玲', role: '正-1' },
+                { id: 'staff_5', name: '文雄', role: '正-2' },
+                { id: 'staff_6', name: '冠汝', role: '輪-1' },
+                { id: 'staff_7', name: '婉霏', role: '輪-2' },
+                { id: 'staff_8', name: '勇得', role: '輪-3' },
+                { id: 'staff_9', name: '詣勛', role: '輪-4' },
+                { id: 'staff_10', name: '婷瑩', role: '輪-5' },
+                { id: 'staff_11', name: '芷芸', role: '輪-6' },
+                { id: 'staff_12', name: '惠琳', role: '輪-7' },
+                { id: 'staff_13', name: '琦崴', role: '輪-8' },
+                { id: 'staff_14', name: '俊穎', role: '輪-9' },
+                { id: 'staff_15', name: '鈺珊', role: '輪-10' },
+                { id: 'staff_16', name: '宛淇', role: '輪-11' },
+                { id: 'staff_17', name: '儀溱', role: '輪-12' },
+                { id: 'staff_18', name: '芬萍', role: '服務台(正-3)' },
+                { id: 'staff_19', name: '欣怡', role: '轉診-1' }
+            ];
+            saveAppData();
+            initUserSelect();
+            renderCalendar();
+            renderStaffSummaryDashboard();
+            renderScheduleMatrix();
+            alert("已成功重置回預設名單！");
+        }
+
+        function processImportRoster() {
+            const fileInput = document.getElementById('roster-file-input');
+            const textarea = document.getElementById('roster-textarea');
+
+            if (fileInput && fileInput.files && fileInput.files[0]) {
+                const file = fileInput.files[0];
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                        
+                        let newStaff = [];
+                        json.forEach((row, idx) => {
+                            if (row.length >= 2 && row[0] && row[1]) {
+                                newStaff.push({
+                                    id: `staff_imp_${idx}`,
+                                    role: String(row[0]).trim(),
+                                    name: String(row[1]).trim()
+                                });
+                            }
+                        });
+
+                        if (newStaff.length > 0) {
+                            staffList = newStaff;
+                            saveAppData();
+                            initUserSelect();
+                            renderCalendar();
+                            renderStaffSummaryDashboard();
+                            renderScheduleMatrix();
+                            closeImportModal();
+                            alert(`成功從 Excel 匯入 ${staffList.length} 位同仁名單！`);
+                        } else {
+                            alert("Excel 格式無法辨識，請確保欄位格式為：[職稱, 姓名]");
+                        }
+                    } catch(err) {
+                        alert("解析檔案發生錯誤：" + err.message);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+                return;
+            }
+
+            if (textarea && textarea.value.trim()) {
+                const lines = textarea.value.trim().split('\n');
+                let newStaff = [];
+                lines.forEach((line, idx) => {
+                    let parts = line.includes(',') ? line.split(',') : line.trim().split(/\s+/);
+                    if (parts.length >= 2) {
+                        newStaff.push({
+                            id: `staff_paste_${idx}`,
+                            role: parts[0].trim(),
+                            name: parts[1].trim()
+                        });
+                    }
+                });
+
+                if (newStaff.length > 0) {
+                    staffList = newStaff;
+                    saveAppData();
+                    initUserSelect();
+                    renderCalendar();
+                    renderStaffSummaryDashboard();
+                    renderScheduleMatrix();
+                    closeImportModal();
+                    alert(`成功匯入 ${staffList.length} 位同仁名單！`);
+                } else {
+                    alert("格式不符，請使用「職稱 姓名」或「職稱,姓名」格式！");
+                }
+                return;
+            }
+
+            alert("請選擇 Excel 檔案或在文字框中貼上名單！");
+        }
+    </script>
+</body>
+</html>
