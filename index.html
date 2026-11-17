@@ -29,6 +29,8 @@
 
             <!-- Top Right Action Buttons -->
             <div class="flex flex-wrap items-center gap-2">
+                <!-- 雲端同步狀態 -->
+                <span id="cloud-sync-status" class="text-xs font-semibold px-3 py-1.5 rounded-xl border bg-amber-50 text-amber-700 border-amber-200">⏳ 雲端連線中…</span>
                 <!-- User Switcher -->
                 <div class="flex items-center space-x-2 bg-slate-100/80 px-3 py-1.5 rounded-xl border border-slate-200 shadow-inner">
                     <i class="fa-solid fa-user-gear text-blue-600 text-sm"></i>
@@ -437,6 +439,7 @@
             renderScheduleMatrix();
             renderLeaveButtons();
             renderCustomLeaveTags();
+            cloudInit();   // ☁️ 連上雲端，抓大家共用的資料
         };
 
         function loadSavedData() {
@@ -482,6 +485,7 @@
             localStorage.setItem(resKey, JSON.stringify(reservations));
             localStorage.setItem(lockKey, JSON.stringify(lockedDates));
             localStorage.setItem(lotKey, JSON.stringify(lotteryRecords));
+            scheduleCloudPush();   // ☁️ 存完自動上傳雲端
         }
 
         function changeMonth(direction) {
@@ -1221,6 +1225,172 @@
             }
 
             alert("請選擇 Excel 檔案或在文字框中貼上名單！");
+        }
+
+        /* =====================================================================
+           ☁️ 雲端同步（Apps Script + 雲端硬碟）
+           ★ 只要改下面 CLOUD_API_URL 這一行：貼上 Apps Script 網頁應用程式網址
+           ===================================================================== */
+        const CLOUD_API_URL = 'https://script.google.com/macros/s/AKfycbxAI7Z0MClbdBAsra6G22Tx8fthJx57_HsgSfXfvUiYFyiJZxuNtJMtYbpq98kAkhiq/exec';
+        const CLOUD_POLL_SECONDS = 10;      // 每幾秒檢查一次別人有沒有改
+        const CLOUD_KEY_PREFIX = 'medical_'; // 只同步這個開頭的 localStorage 資料
+
+        let cloudSnapshot = {};   // 上次從雲端拿到的資料
+        let cloudVersion = -1;
+        let cloudReady = false;   // 第一次有成功連上雲端才會變 true
+        let cloudPushing = false, cloudPushAgain = false, cloudPushTimer = null;
+
+        function isPlainObj(x) { return x && typeof x === 'object' && !Array.isArray(x); }
+        function deepCopy(x) { return JSON.parse(JSON.stringify(x)); }
+
+        // 讀出這台電腦所有要同步的資料
+        function readLocalAll() {
+            const o = {};
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith(CLOUD_KEY_PREFIX)) {
+                    try { o[k] = JSON.parse(localStorage.getItem(k)); } catch (e) {}
+                }
+            }
+            return o;
+        }
+
+        // 比對「雲端上次的樣子」和「現在電腦裡的樣子」，找出哪幾格有改
+        function diffData(path, a, b, ops) {
+            if (isPlainObj(a) && isPlainObj(b)) {
+                for (const k in b) diffData(path.concat(k), a[k], b[k], ops);
+                for (const k in a) if (!(k in b)) ops.push({ p: path.concat(k), d: 1 });
+            } else if (JSON.stringify(a) !== JSON.stringify(b)) {
+                ops.push({ p: path, v: b });
+            }
+        }
+        function pendingOps() {
+            const local = readLocalAll(), ops = [];
+            for (const k in local) diffData([k], cloudSnapshot[k], local[k], ops);
+            return ops;
+        }
+        function applyOps(root, ops) {
+            ops.forEach(op => {
+                let o = root;
+                for (let i = 0; i < op.p.length - 1; i++) {
+                    if (!isPlainObj(o[op.p[i]])) o[op.p[i]] = {};
+                    o = o[op.p[i]];
+                }
+                const last = op.p[op.p.length - 1];
+                if (op.d) delete o[last]; else o[last] = op.v;
+            });
+        }
+
+        // 把雲端資料放回電腦（還沒上傳的修改會保留）並重畫畫面
+        function applyCloud(json) {
+            const keep = pendingOps();
+            cloudSnapshot = json.data || {};
+            cloudVersion = json.version;
+            const merged = deepCopy(cloudSnapshot);
+            applyOps(merged, keep);
+            for (const k in merged) localStorage.setItem(k, JSON.stringify(merged[k]));
+            loadSavedData();
+            initUserSelect();
+            refreshActiveMonthData();
+            renderCalendar();
+            renderStaffSummaryDashboard();
+            renderScheduleMatrix();
+            renderLeaveButtons();
+            renderCustomLeaveTags();
+            if (activeLotteryDate) renderLotteryResultsList();
+        }
+
+        // 第一次連線
+        async function cloudInit() {
+            try {
+                const json = await cloudGet();
+                const cloudEmpty = !json.data || Object.keys(json.data).length === 0;
+                if (!cloudEmpty) {
+                    // 雲端已經有資料 → 以雲端為準，清掉這台電腦的舊資料
+                    Object.keys(readLocalAll()).forEach(k => localStorage.removeItem(k));
+                }
+                // 雲端是空的 → 這台電腦的資料會當成第一份上傳
+                cloudReady = true;
+                applyCloud(json);
+                setCloudStatus('ok', json);
+                if (cloudEmpty) cloudPushNow();
+            } catch (err) {
+                setCloudStatus('bad', null, err);
+            }
+        }
+
+        async function cloudGet() {
+            const res = await fetch(CLOUD_API_URL + '?t=' + Date.now());
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error);
+            return json;
+        }
+
+        // 存檔後 0.3 秒再上傳（連續改很多格只會傳一次）
+        function scheduleCloudPush() {
+            if (!cloudReady) return;
+            clearTimeout(cloudPushTimer);
+            cloudPushTimer = setTimeout(cloudPushNow, 300);
+        }
+
+        async function cloudPushNow() {
+            if (!cloudReady) return;
+            if (cloudPushing) { cloudPushAgain = true; return; }
+            const ops = pendingOps();
+            if (ops.length === 0) return;
+            cloudPushing = true;
+            setCloudStatus('busy');
+            try {
+                const me = staffList.find(s => s.id === currentUser);
+                const res = await fetch(CLOUD_API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ ops: ops, who: me ? me.name : '' })
+                });
+                const json = await res.json();
+                if (!json.ok) throw new Error(json.error);
+                applyCloud(json);
+                setCloudStatus('ok', json);
+            } catch (err) {
+                setCloudStatus('bad', null, err);
+            } finally {
+                cloudPushing = false;
+                if (cloudPushAgain) { cloudPushAgain = false; cloudPushNow(); }
+            }
+        }
+
+        // 每 10 秒：有沒上傳的先上傳；沒有就去看別人有沒有改
+        async function cloudPoll() {
+            if (!cloudReady) { cloudInit(); return; }
+            if (cloudPushing) return;
+            if (pendingOps().length > 0) { cloudPushNow(); return; }
+            try {
+                const json = await cloudGet();
+                if (json.version !== cloudVersion) applyCloud(json);
+                setCloudStatus('ok', json);
+            } catch (err) {
+                setCloudStatus('bad', null, err);
+            }
+        }
+        setInterval(cloudPoll, CLOUD_POLL_SECONDS * 1000);
+
+        function setCloudStatus(type, info, err) {
+            const el = document.getElementById('cloud-sync-status');
+            if (!el) return;
+            const base = 'text-xs font-semibold px-3 py-1.5 rounded-xl border ';
+            if (type === 'busy') {
+                el.className = base + 'bg-amber-50 text-amber-700 border-amber-200';
+                el.textContent = '⏳ 上傳中…';
+            } else if (type === 'bad') {
+                el.className = base + 'bg-rose-50 text-rose-700 border-rose-200';
+                el.textContent = '⚠️ 雲端未連線' + (cloudReady ? '（修改先存本機，稍後自動補傳）' : '');
+                el.title = err ? err.message : '';
+            } else {
+                el.className = base + 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                const t = info && info.updatedAt ? new Date(info.updatedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) : '';
+                const who = info && info.updatedBy ? '・' + info.updatedBy : '';
+                el.textContent = '☁️ 已同步' + (t ? '（' + t + who + '）' : '');
+                el.title = '';
+            }
         }
     </script>
 </body>
