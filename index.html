@@ -46,14 +46,14 @@
             </div>
 
             <!-- Top Right Action Buttons -->
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2.5">
                 <!-- 雲端同步狀態 -->
                 <span id="cloud-sync-status" class="text-xs font-semibold px-3 py-1.5 rounded-xl border bg-amber-50 text-amber-700 border-amber-200">⏳ 雲端連線中…</span>
-                <!-- User Switcher -->
-                <div class="flex items-center space-x-2 bg-slate-100/80 px-3 py-1.5 rounded-xl border border-slate-200 shadow-inner">
-                    <i class="fa-solid fa-user-gear text-blue-600 text-sm"></i>
-                    <span class="text-xs font-semibold text-slate-700">當前身分：</span>
-                    <select id="user-select" onchange="switchUser()" class="bg-transparent text-xs font-bold text-blue-700 focus:outline-none cursor-pointer">
+                <!-- User Switcher (Enhanced Size & Visibility) -->
+                <div class="flex items-center space-x-2.5 bg-blue-50/90 px-4 py-2 rounded-2xl border-2 border-blue-300 shadow-sm hover:border-blue-400 transition">
+                    <i class="fa-solid fa-user-gear text-blue-600 text-base"></i>
+                    <span class="text-sm font-bold text-slate-800 whitespace-nowrap">當前身分：</span>
+                    <select id="user-select" onchange="switchUser()" class="bg-white/90 px-2.5 py-1 rounded-lg border border-blue-200 text-sm sm:text-base font-extrabold text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer">
                         <!-- Populated by JS -->
                     </select>
                 </div>
@@ -97,7 +97,7 @@
                 <span id="current-month-range-text" class="text-xs text-slate-600 font-semibold bg-indigo-50/80 px-3.5 py-1.5 rounded-xl border border-indigo-100">
                     當月天數：31 天 (起始星期：二)
                 </span>
-                <button onclick="clearCurrentMonthReservations()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center shadow-2xs">
+                <button id="reset-month-btn" onclick="clearCurrentMonthReservations()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center shadow-2xs">
                     <i class="fa-solid fa-rotate-right mr-1.5"></i> 重置本月預班
                 </button>
             </div>
@@ -400,7 +400,7 @@
             </div>
 
             <div class="pt-2 border-t border-slate-100 flex justify-between items-center">
-                <button onclick="resetLotteryForActiveDate()" class="text-xs text-slate-500 hover:text-slate-700 underline">重置抽籤結果</button>
+                <button id="reset-lottery-btn" onclick="resetLotteryForActiveDate()" class="text-xs text-slate-500 hover:text-slate-700 underline">重置抽籤結果</button>
                 <button onclick="closeLotteryModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl text-xs font-semibold">關閉</button>
             </div>
         </div>
@@ -493,6 +493,34 @@
         let currentUser = 'staff_1';
         let activeSelectedDate = null;
         let activeLotteryDate = null;
+
+        // 僅限這 3 位主管姓名可執行「重置本月預班」與「重置抽籤結果」
+        const SUPERVISOR_RESET_NAMES = ['莉娟', '麗雯', '佩君'];
+
+        function isCurrentUserResetAuthorized() {
+            const staff = staffList.find(s => s.id === currentUser);
+            return !!(staff && SUPERVISOR_RESET_NAMES.includes(staff.name.trim()));
+        }
+
+        function updateSupervisorActionButtons() {
+            const authorized = isCurrentUserResetAuthorized();
+            const resetMonthBtn = document.getElementById('reset-month-btn');
+            if (resetMonthBtn) {
+                if (authorized) {
+                    resetMonthBtn.classList.remove('hidden');
+                } else {
+                    resetMonthBtn.classList.add('hidden');
+                }
+            }
+            const resetLotteryBtn = document.getElementById('reset-lottery-btn');
+            if (resetLotteryBtn) {
+                if (authorized) {
+                    resetLotteryBtn.classList.remove('hidden');
+                } else {
+                    resetLotteryBtn.classList.add('hidden');
+                }
+            }
+        }
 
         const standardLeaveTypes = [
             { name: 'v', color: 'bg-blue-600' },
@@ -656,6 +684,7 @@
         window.onload = function() {
             loadSavedData();
             initUserSelect();
+            updateSupervisorActionButtons();
             refreshActiveMonthData();
             renderCalendar();
             renderStaffSummaryDashboard();
@@ -747,12 +776,14 @@
                 currentUser = staffList[0].id;
             }
             select.value = currentUser;
+            updateSupervisorActionButtons();
         }
 
         function switchUser() {
             const select = document.getElementById('user-select');
             if (!select) return;
             currentUser = select.value;
+            updateSupervisorActionButtons();
             renderCalendar();
             renderStaffSummaryDashboard();
         }
@@ -1026,6 +1057,10 @@
         }
 
         function clearCurrentMonthReservations() {
+            if (!isCurrentUserResetAuthorized()) {
+                showToast("權限不足：僅限主管（莉娟、麗雯、佩君）可執行重置本月預班！", "error");
+                return;
+            }
             showConfirmDialog(
                 `確定要重置 ${currentYear} 年 ${currentMonth} 月份的所有預約、鎖班紀錄與抽籤結果嗎？`,
                 () => {
@@ -1170,6 +1205,7 @@
             currentUser = staffId;
             const select = document.getElementById('user-select');
             if (select) select.value = currentUser;
+            updateSupervisorActionButtons();
             
             openBookingModal(day);
         }
@@ -1303,6 +1339,7 @@
             }
 
             renderLotteryResultsList();
+            updateSupervisorActionButtons();
             document.getElementById('lottery-modal').classList.remove('hidden');
         }
 
@@ -1461,6 +1498,10 @@
         }
 
         function resetLotteryForActiveDate() {
+            if (!isCurrentUserResetAuthorized()) {
+                showToast("權限不足：僅限主管（莉娟、麗雯、佩君）可執行重置抽籤結果！", "error");
+                return;
+            }
             if (!activeLotteryDate) return;
             const lotKey = `${currentYear}_${currentMonth}_${activeLotteryDate}`;
             delete lotteryRecords[lotKey];
